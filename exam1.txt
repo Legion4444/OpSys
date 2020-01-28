@@ -1,0 +1,17 @@
+Exam 1
+	everything in lecture up through wednessday 29th
+	Chapters 1-7
+	HW
+	Syscalls
+		fork, wait pid, exit	
+		exec
+		signal
+		kill
+		getrlimit, setrlimit
+		sysconf (_SC_CHILD_MAX)
+		getrusage
+		times
+		uname
+		getlogin
+		getpid
+		getppid
