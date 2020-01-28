@@ -9,15 +9,21 @@
 #include <assert.h>
 
 void main(int argv, char** argc){
-	int forkID = fork();
-	assert(forkID >= 0);	
-
-	if(forkID == 0){
-		printf("Child PID%d\n", getpid());
-		exit(0);
+	printf("Parent PID: %d\n", getpid());
+	
+	int forkID = 1;
+	while(forkID > 0){
+		forkID = fork();
+		if(forkID == 0)
+			break;	
 	}
-	if(forkID > 0){
-		printf("Parent PID%d\n", getpid());
-		wait(&wstatus);
+	if(forkID == 0){
+		sleep(1);
+                printf("Child PID: %d\n", getpid());
+                exit(0);
+      	}
+	if(forkID != 0){
+		sleep(2);
+		wait(NULL);
 	}
 }
