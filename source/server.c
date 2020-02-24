@@ -19,6 +19,7 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include <stdbool.h>	//Why the hell does C need to import the freaking bool type
 
@@ -42,7 +43,7 @@ extern int errno;
 
 void print_ip_addresses(struct addrinfo *ai);
 void print_error(char *);
-void handle_client(int,int);
+void * handle_client(void *);
 
 int main(int argc, char *argv[]) 
 {
@@ -107,12 +108,10 @@ int main(int argc, char *argv[])
 
 	struct sockaddr client_sockaddr;
 	socklen_t client_sockaddr_len = sizeof(client_sockaddr);
-	int token = 0;
+	printf("Awaiting Connection(s)...\n------------------------------\n");
 	
 	//The server loop
 	for (;;) {
-
-		printf("waiting for connection ...\n");
         	//Waits for connection
 		int clfd = accept(host_fd, &client_sockaddr, &client_sockaddr_len);
         	if (clfd < 0) {
@@ -137,32 +136,48 @@ int main(int argc, char *argv[])
 			continue;
 		}
 		
-		//The real server loop starts here
-		handle_client(clfd, token);
-		close(clfd);
+		//Fork and let child handle the client so multiple clients can be handled at once
+		int fork_code = fork();
+		if(fork_code == 0){
+			int fd = clfd;
+			pthread_t tid;
+			pthread_create(&tid, NULL, handle_client, &fd);
+			pthread_detach(tid);
+		}
+		if(fork_code > 0){
+			printf("Created thread to handle client\n");
+			printf("------------------------------\n");
+			continue;
+		}
+		if(fork_code < 0){
+			printf("Error in making new thread: %s", strerror(errno));
+		}
+		
 	} 
 	close(host_fd);
 }
 
-void handle_client(int clfd, int token){
+void * handle_client(void * fd){
+	int token = 0;
+	int clfd = *(int *) fd;
 	//The real server loop starts here
         while(1){
 		int n = recv(clfd, &token, 4, 0);
-        	if(n <= 0){
+		if(n <= 0){
                 	printf("Error recieving Op Code from Client\n");
-			return;
+			goto end_connection;
 		}
         	if(n > 0){
                 	printf("Recieved Op Code [%i] from Client\n", token);
         	}	
-
+		
         	switch(token){
-                	case 1: ;
+                	case ADD: ;
                         	int dataLength;
                         	n = recv(clfd, &dataLength, 4, 0);
                         	if(n < 0){
                                 	printf("Error recieving dataLength from Client\n");
-					return;
+					goto end_connection;
 				}
                         	if(n >= 0){
                                 	printf("Recieved [%i] from Client\n", dataLength);
@@ -172,20 +187,68 @@ void handle_client(int clfd, int token){
                                 	n = recv(clfd, &data, dataLength, 0);
                                 	if(n < 0){
                                         	printf("Error recieving data from Client\n");
-						return;
+						goto end_connection;
 					}
-                                	if(n >= 0){
-                                        	printf("Recieved [%s] from Client\n", data);
-                                	}
+                                        printf("Recieved [%s] from Client\n", data);
+					FILE *fp;
+					fp = fopen("./server_files/records.csv", "a+");
+					fputs(data, fp);
+					fputc('\n', fp);
+					fclose(fp);
+					
+					printf("Wrote [%s] to server_files/records.csv\n", data);
+					printf("------------------------------\n");
                         	}
                         	break;
-			case 0: ;
+			case LIST: ; 
+				{
+					int data_length, n;
+		
+					printf("Opening File...\n");	
+					FILE *fp;
+					fp = fopen("./server_files/records.csv", "r");
+					fseek(fp, 0, SEEK_END);
+					data_length = ftell(fp);
+					fseek(fp, 0, SEEK_SET);
+					n = send(clfd, &data_length, 4, 0);		
+					if(n < 0){
+                                	        printf("Error sending to Client\n");
+                                	}
+                                	if(n >= 0){
+                                        	printf("Sent [%i] from Server\n", data_length);
+                                	}
+
+					char buff[data_length];
+					fscanf(fp, "%[ \n,0-9a-zA-Z]", buff);
+					n = send(clfd, &buff, data_length, 0);
+					if(n < 0){
+                                        	printf("Error sending data to Client\n");
+                                	}
+                                	printf("Sent [\n%s] to Client\n", buff);
+					printf("------------------------------\n");
+				}
+				break;
+			case REMOVE: ; 
+				{
+					remove("./server_files/records.csv");
+					FILE *fp;
+					fp = fopen("./server_files/records.csv", "a");
+					fclose(fp);
+					printf("Deleted ./server_files/records.csv\n");
+					printf("------------------------------\n");
+				}
+				break;
+			case EXIT: ;
                         	printf("Closing Connection\n");
-				return;
+				goto end_connection;
+			default:
+				printf("Op Code [%i] does not match available operations\n", token);
+				break;
 		}
 	}
-        close(clfd);
-	return;
+	end_connection:
+        	close(clfd);
+		return 0;
 }
 
 void print_ip_addresses(struct addrinfo *host_ai)
